@@ -1,0 +1,16 @@
+name: h2-pipeline-digital-twin
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - streamlit=1.38
+  - pandas=2.2
+  - numpy=1.26
+  - matplotlib=3.8
+  - folium=0.16
+  - streamlit-folium=0.17
+  - scipy=1.13
+  - pip
+  - pip:
+    - --no-deps
