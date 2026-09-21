@@ -1,0 +1,90 @@
+# Ireland Gas Networks Ireland (GNI) Case Study Configuration
+# All defaults aligned with GNI Network Development Plan & Climate Action Plan
+
+case:
+  name: "Ireland - Gas Networks Ireland"
+  region: "Ireland"
+  operator: "Gas Networks Ireland"
+  description: |
+    Ireland's ~2,000 km gas transmission network operated by GNI.
+    Primary corridors: Dublin-Cork (220 km), Galway-Dublin (180 km).
+    Climate Action Plan targets: 5 GW offshore wind by 2030, 2 GW green H2.
+
+defaults:
+  # Simulation parameters
+  h2_blend_pct: 20              # Current EU/UK blending trial upper bound
+  pressure_bar: 70              # GNI transmission standard (max 75 bar)
+  diameter_mm: 500              # Typical trunk line (20" = 508 mm)
+  length_km: 220                # Cork-Dublin corridor
+  ambient_temp_c: 10            # Irish sub-surface annual average
+
+  # Reference gas (pure CH4 at STP)
+  reference_hv_vol_mj_m3: 35.8  # CH4 volumetric heating value at STP
+
+  # Pipeline steel grades (GNI asset base)
+  steel_grades:
+    - "API 5L X65"    # Modern trunk lines
+    - "API 5L X52"    # Older sections
+    - "API 5L Gr. B"  # Legacy distribution feeders
+
+  # Risk thresholds (aligned with ASME B31.12 / IGEM TD/13)
+  embrittlement_tiers:
+    low_max: 10       # <10% H2: standard ops
+    moderate_max: 25  # 10-25%: enhanced monitoring
+    # >25%: high risk, derating required
+
+  velocity_limits_m_s:
+    nominal: 15       # Standard erosional limit
+    elevated: 20      # Monitor closely
+    # >20: action required
+
+  pressure_drop_fraction:
+    acceptable: 0.15  # <15% of inlet P
+    elevated: 0.30    # 15-30%: verify compressor capacity
+    # >30%: intermediate compression needed
+
+corridors:
+  - name: "Dublin-Cork (Inchicore → Whitegate)"
+    start: [53.3298, -6.3158]
+    end: [51.8333, -8.2500]
+    length_km: 220
+    diameter_mm: 500
+    design_pressure_bar: 70
+    steel_grade: "API 5L X65"
+    compressor_stations:
+      - name: "Inchicore"
+        location: [53.3298, -6.3158]
+        power_mw: 45
+      - name: "Ballytrasna"
+        location: [52.1000, -8.4000]
+        power_mw: 30
+
+  - name: "Galway-Dublin"
+    start: [53.2707, -9.0568]
+    end: [53.3498, -6.2603]
+    length_km: 180
+    diameter_mm: 400
+    design_pressure_bar: 70
+    steel_grade: "API 5L X52"
+    compressor_stations: []
+
+  - name: "Cork-Limerick"
+    start: [51.8333, -8.2500]
+    end: [52.6638, -8.6267]
+    length_km: 95
+    diameter_mm: 300
+    design_pressure_bar: 50
+    steel_grade: "API 5L X52"
+    compressor_stations: []
+
+policy_context:
+  climate_action_plan_2024: true
+  offshore_wind_target_gw: 5
+  green_h2_target_gw: 2
+  blending_trial_target_year: 2025
+  references:
+    - "GNI Network Development Plan 2023-2032"
+    - "Climate Action Plan 2024 (CAP24)"
+    - "National Hydrogen Strategy (2023)"
+    - "ASME B31.12 Hydrogen Piping and Pipelines"
+    - "IGEM TD/13 Hydrogen in Gas Networks"
