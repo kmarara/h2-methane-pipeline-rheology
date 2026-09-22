@@ -58,7 +58,7 @@ class PipelineNetwork:
         lons = [s.start_lon for s in self.segments] + [s.end_lon for s in self.segments]
         center = [sum(lats)/len(lats), sum(lons)/len(lons)]
 
-        m = folium.Map(location=center, zoom_start=7, tiles='CartoDB positron')
+        m = folium.Map(location=center, zoom_start=7, tiles='OpenStreetMap')
 
         # Determine risk tier for this H2 blend
         from core.materials import embrittlement_tier, RiskTier
