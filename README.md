@@ -1,6 +1,11 @@
 # H₂ Pipeline Digital Twin — Core Engine + Regional Case Studies
 
 A modular computational platform for hydrogen blending analysis in natural gas transmission networks. The **core physics engine** is geography-agnostic; **case studies** provide region-specific configuration (corridors, steel grades, policy context, risk thresholds).
+
+**New in v2.0:** Interactive Streamlit dashboard (6 tabs), FastAPI REST backend, Monte Carlo UQ, Network Solver, Transient Simulator, Economics Dashboard.
+
+---
+
 ## Why This Exists
 
 Gas networks globally face the same physics challenge: **H₂ has 1/3 the volumetric energy density of CH₄ but lower viscosity and different compressibility**. Blending changes pressure drop, compressor power, materials degradation, and flow requirements — all simultaneously. This tool quantifies those coupled effects using industry-standard equations.
@@ -11,39 +16,26 @@ Gas networks globally face the same physics challenge: **H₂ has 1/3 the volume
 
 ```
 h2-pipeline-digital-twin/
-├── core/                          # Pure physics engine (zero geography)
-│   ├── thermodynamics.py          # Peng-Robinson EOS, Wilke viscosity, blend properties
-│   ├── hydraulics.py              # Darcy-Weisbach, Weymouth, flow scaling
-│   ├── materials.py               # Embrittlement tiers, velocity limits, ΔP limits
-│   ├── pipeline.py                # Geographic network definitions, Folium mapping
-│   └── __init__.py                # Public API
-├── cases/                         # Regional configurations (add yours)
-│   ├── ireland/                   # Gas Networks Ireland (reference implementation)
-│   │   ├── config.yaml            # Corridors, defaults, policy context, risk thresholds
-│   │   └── __init__.py            # Loader functions
-│   ├── __init__.py                # Case registry & loader
-│   └── (add: uk/, eu/, us/, ...)
-├── app.py                         # Streamlit UI (thin wrapper: core + selected case)
-├── requirements.txt
-└── README.md
+├── app.py                           # Streamlit dashboard (6 tabs)
+├── api/main.py                      # FastAPI REST backend
+├── core/                            # Physics engine (zero geography)
+│   ├── thermodynamics.py            # Peng-Robinson EOS, Wilke viscosity
+│   ├── hydraulics.py                # Darcy-Weisbach, Weymouth, compression, looping
+│   ├── materials.py                 # ASME B31.12 / IGEM TD/13 risk tiers
+│   ├── pipeline.py                  # Geographic network + Folium mapping
+│   ├── network/solver.py            # Graph-based Newton-Raphson solver
+│   ├── gis/importer.py              # Shapefile/GeoJSON ingestion
+│   ├── compressor/maps.py           # Universal Φ-Ψ maps, driver models
+│   ├── transient/simulator.py       # Implicit FD, linepack, H₂ transport
+│   ├── economics/cost_model.py      # CAPEX/OPEX, NPV, LCOT
+│   ├── uq/monte_carlo.py            # Parallel Monte Carlo UQ
+│   └── __init__.py                  # Unified API
+├── cases/ireland/                   # Ireland (GNI) reference case
+│   ├── config.yaml                  # Corridors, steel grades, policy, thresholds
+│   └── __init__.py                  # Case loader
+├── tests/test_core.py               # 21 validation tests (all passing)
+└── requirements.txt                 # All dependencies
 ```
-
-**Key principle:** Physics lives in `core/`. Geography/policy lives in `cases/`. Contributors add new regions by creating a `cases/<region>/` folder — no physics changes needed.
-
----
-
-## Why Ireland as the Reference Case Study?
-
-Ireland was chosen as the **reference implementation** for four reasons:
-
-| Reason | Detail |
-|--------|--------|
-| **Defined decarbonization mandate** | Climate Action Plan 2024: 5 GW offshore wind by 2030, 2 GW green H₂ production. Blending is a near-term action. |
-| **Single-operator simplicity** | Gas Networks Ireland (GNI) operates the entire ~2,000 km transmission system. One asset base, one steel grade family (API 5L X52/X65), one regulatory framework. |
-| **Well-characterized corridors** | Dublin-Cork (220 km, 20"), Galway-Dublin (180 km, 16") are documented in GNI Network Development Plan. Real coordinates, real design pressures. |
-| **Regulatory alignment** | ASME B31.12 (US) and IGEM TD/13 (UK) are both referenced in Irish practice. Risk tiers in this tool map directly to both. |
-
-**This does not limit the tool to Ireland.** The core engine accepts any `PipelineNetwork` definition. The Ireland case demonstrates *how* to configure a real system — contributors replicate the pattern for their region.
 
 ---
 
@@ -58,58 +50,113 @@ python -m venv venv && source venv/bin/activate  # Linux/macOS
 # venv\Scripts\Activate.ps1                      # Windows PowerShell
 
 pip install -r requirements.txt
+
+# Option 1: Interactive Dashboard (Streamlit)
 streamlit run app.py
+
+# Option 2: REST API (FastAPI)
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+# API docs at http://localhost:8000/docs
+
+# Option 3: Python API
+python -c "
+from core import MonteCarloUQ
+uq = MonteCarloUQ()
+r = uq.run_economics_mc(200)
+uq.print_summary(r)
+"
 ```
 
-Open `http://localhost:8501`. The UI loads the **Ireland (GNI)** case by default. Select corridor, adjust sliders, download CSV.
+Open `http://localhost:8501` for Streamlit UI or `http://localhost:8000/docs` for API docs.
 
 ---
 
-## Core Physics (What the Engine Computes)
+## Dashboard Tabs (Streamlit)
 
-| Module | Equations | Outputs |
-|--------|-----------|---------|
-| **Thermodynamics** | Peng-Robinson cubic EOS for Z; Wilke mixing rule for μ; ρ = PM/ZRT; linear heating value blending | `M_blend, Z_blend, ρ, μ, HV_mass, HV_vol` |
-| **Hydraulics** | Darcy-Weisbach (Colebrook-White f) + Weymouth (high-P gas standard); energy-equivalent flow scaling | `ΔP_weymouth, ΔP_darcy, Q_equiv, velocity, Re` |
-| **Materials** | Tiered thresholds from ASME B31.12 / IGEM TD/13 / API 5L | `embrittlement_tier, velocity_tier, dp_tier` |
-| **Pipeline** | Segment + compressor station definitions → Folium map with risk coloring | Interactive geospatial visualization |
-
-All functions are pure, typed, and unit-tested (see `tests/`).
+| Tab | Features |
+|-----|----------|
+| **📊 Hydraulics** | Pressure drop vs blend %, energy vs flow trade-off, risk alerts, mitigation (compressors/looping) with live plots |
+| **🗺️ Network** | Folium map of GNI corridors, network solver results, node pressures table |
+| **⚡ Transient** | Time-dependent blending ramps, linepack tracking, H₂ front propagation |
+| **🎲 Uncertainty (MC)** | Monte Carlo UQ with P10/P50/P90, sensitivity tornado charts, distribution histograms |
+| **💰 Economics** | CAPEX/OPEX breakdown, NPV, LCOT, sensitivity analysis, pie/bar charts |
+| **📋 Export** | CSV/JSON download of full scenario |
 
 ---
 
-## Running the Application
+## Terminal Capabilities (What You See in CLI)
 
 ```bash
-cd h2-pipeline-digital-twin
+# Monte Carlo Economics (200 samples, 4 workers)
+from core import MonteCarloUQ
+uq = MonteCarloUQ(n_workers=4)
+r = uq.run_economics_mc(200)
+uq.print_summary(r)
 
-# Activate environment
-source venv/bin/activate          # Linux/macOS
-# venv\Scripts\Activate.ps1       # Windows PowerShell
-# venv\Scripts\activate.bat       # Windows CMD
-
-# Launch
-streamlit run app.py
+# Output:
+# ============================================================
+# Monte Carlo UQ Summary (200 samples)
+# Compute time: 0.3s
+# ============================================================
+#
+# annual_opex_eur:
+#   Mean: 51924451.024 ± 4008113.802
+#   P10/P50/P90: 46766666.932 / 52116419.818 / 57051920.953
+#   Sensitivities: demand_scaling: 0.897, ground_temp_c: 0.122...
+#
+# npv_eur:
+#   Mean: -2288644127.385 ± 54419210.630
+#   P10/P50/P90: -2358266490.912 / -2291233622.746 / -2218593412.800
+#   Sensitivities: demand_scaling: 0.897, ...
 ```
 
-- **Stop:** `Ctrl+C`
-- **Deactivate:** `deactivate`
-- **Port conflict:** `streamlit run app.py --server.port 8502`
+```bash
+# Steady-State Single Pipeline
+from core import simulate_pipeline_with_compressors, find_required_looping
+comp = simulate_pipeline_with_compressors(Q=Q_equiv, L_total=220, D=500, ...)
+# Returns: num_compressors, total_power_mw, compressor_locations_km, pressure_profile
+
+loop = find_required_looping(Q=Q_equiv, L_total=220, D_main=500, ...)
+# Returns: loop_percentage, loop_length_km, P_out, success
+```
+
+```bash
+# Network Solver (Multi-node)
+from core import GasNetwork, create_ireland_network
+net = create_ireland_network()
+net.set_gas_properties(0.2, 283.15)
+results = net.solve_steady_state()
+# Returns: node_pressures, edge_flows, pressure_violations, compressor_power_mw
+```
+
+```bash
+# Transient Blending
+from core import TransientSimulator, create_blending_ramp_scenario
+scenario = create_blending_ramp_scenario(net, duration_hours=24, final_h2=0.2)
+sim = TransientSimulator(net)
+results = sim.simulate(scenario)
+# Returns: time series of pressures, H2 fractions, linepack, flows
+```
+
+```bash
+# Economics
+from core.economics.cost_model import estimate_ireland_h2_project
+results = estimate_ireland_h2_project(network_results, h2_target_pct=20)
+# Returns: CAPEX/OPEX breakdown, NPV, LCOT, sensitivity
+```
 
 ---
 
-## Key Parameters (Ireland Case Defaults)
+## Why Ireland as Reference Case Study?
 
-| Parameter | Range | Ireland Default | Source |
-|-----------|-------|-----------------|--------|
-| H₂ Blend | 0-50% | 20% | EU/UK blending trials, GNI pilot targets |
-| Pressure | 10-80 bar | 70 bar | GNI transmission design pressure |
-| Diameter | 200-1000 mm | 500 mm (20") | Dublin-Cork trunk line |
-| Length | 10-500 km | 220 km | Inchicore → Whitegate |
-| Ground Temp | 0-20°C | 10°C | Irish sub-surface annual average |
-| Steel Grade | — | API 5L X65/X52 | GNI asset register |
+| Reason | Detail |
+|--------|--------|
+| **Defined decarbonization mandate** | Climate Action Plan 2024: 5 GW offshore wind by 2030, 2 GW green H₂. Blending is a near-term action. |
+| **Single-operator simplicity** | Gas Networks Ireland (GNI) operates the entire ~2,000 km transmission system. One asset base, one steel grade family (API 5L X52/X65), one regulatory framework. |
+| **Well-characterized corridors** | Dublin-Cork (220 km, 20"), Galway-Dublin (180 km, 16") documented in GNI Network Development Plan. Real coordinates, real design pressures. |
+| **Regulatory alignment** | ASME B31.12 (US) and IGEM TD/13 (UK) both referenced in Irish practice. Risk tiers in this tool map directly to both. |
 
-*All defaults configurable in `cases/ireland/config.yaml`.*
+**This does not limit the tool to Ireland.** The core engine accepts any `PipelineNetwork` definition. The Ireland case demonstrates *how* to configure a real system — contributors replicate the pattern for their region.
 
 ---
 
@@ -177,13 +224,58 @@ AVAILABLE_CASES = {
 }
 ```
 
-### 5. (Optional) Custom Network Class
-If your topology is complex (meshed, multiple entry/exit points), extend `core.pipeline.PipelineNetwork` in a new `cases/my_region/network.py`.
-
-### 6. Open PR
-- Include validation: compare your ΔP predictions against operator's hydraulic model or field data
+### 5. Open PR
+- Include validation: compare ΔP predictions against operator's hydraulic model or field data
 - Document sources for steel grades, design pressures, roughness values
-- Reference local standards (e.g., ASME B31.8, CSA Z662, EN 1594)
+- Reference local standards (ASME B31.8, CSA Z662, EN 1594)
+
+---
+
+## API Reference (FastAPI)
+
+Start server: `uvicorn api.main:app --host 0.0.0.0 --port 8000`
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/thermodynamics/blend` | POST | Blend properties (Z, ρ, μ, HV) |
+| `/api/v1/simulate/steady-state` | POST | Single pipeline hydraulics + mitigation |
+| `/api/v1/network/solve` | POST | Full network Newton-Raphson solve |
+| `/api/v1/simulate/transient` | POST | Async transient job |
+| `/api/v1/economics/analyze` | POST | Economic analysis |
+| `/api/v1/jobs/{job_id}` | GET | Job status/results |
+| `/api/v1/ireland/corridors` | GET | Ireland corridors config |
+| `/api/v1/ireland/policy` | GET | Ireland policy context |
+
+---
+
+## Core Physics (What the Engine Computes)
+
+| Module | Equations | Outputs |
+|--------|-----------|---------|
+| **Thermodynamics** | Peng-Robinson cubic EOS for Z; Wilke mixing rule for μ; ρ = PM/ZRT; linear HV blending | `M_blend, Z_blend, ρ, μ, HV_mass, HV_vol` |
+| **Hydraulics** | Darcy-Weisbach (Colebrook-White f) + Weymouth; energy-equivalent flow scaling | `ΔP_weymouth, ΔP_darcy, Q_equiv, velocity, Re` |
+| **Materials** | Tiered thresholds from ASME B31.12 / IGEM TD/13 / API 5L | `embrittlement_tier, velocity_tier, dp_tier` |
+| **Network** | Graph-based mass balance + pressure-flow relations (Newton-Raphson) | `node_pressures, edge_flows, violations` |
+| **Transient** | Implicit FD for continuity + momentum; linepack + composition transport | `P(t), H₂(t), linepack(t), Q(t)` |
+| **Economics** | CAPEX (terrain, H₂-ready), OPEX (fuel, carbon, maintenance), NPV, LCOT | `capex, opex, npv, lcot` |
+| **UQ** | Monte Carlo with parallel execution; correlation sensitivities | `P10/P50/P90, tornado charts` |
+
+---
+
+## Validation Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+All 21 tests pass:
+- Peng-Robinson Z-factors at STP and 70 bar
+- Wilke viscosity mixing (including non-monotonic peak)
+- Blend properties (MW, density, HV)
+- Darcy-Weisbach / Weymouth positive ΔP
+- Flow scaling, velocity calculation
+- Risk tier thresholds (embrittlement, velocity, ΔP)
+- Known validation cases (20% H₂ density, viscosity, flow increase)
 
 ---
 
@@ -191,9 +283,9 @@ If your topology is complex (meshed, multiple entry/exit points), extend `core.p
 
 | Horizon | Scope | Additions |
 |---------|-------|-----------|
-| **Near** | Single corridor optimization | Multi-objective (CAPEX/OPEX/risk), compressor maps, cost model |
+| **Near** | Single corridor optimization | Multi-objective (CAPEX/OPEX/risk), compressor map integration, cost model |
 | **Mid** | Full network (2,000+ km) | Graph-based steady-state solver, GIS shapefile ingestion, transient simulation |
-| **Long** | Integrated energy system | Electrolyzer dispatch, salt cavern storage, power-to-gas optimization, PyPSA/OpenModelica export |
+| **Long** | Integrated energy system | Electrolyzer dispatch, salt cavern storage, power-to-gas optimization, PyPSA export |
 
 ---
 
@@ -205,15 +297,15 @@ If your topology is complex (meshed, multiple entry/exit points), extend `core.p
    - Validation case (analytical or experimental data)
    - Type hints + docstrings
 3. **Case additions:** Follow *Extending to a New Region* above
-4. **Run checks:** `python -m py_compile app.py` + any pytest suite
+4. **Run checks:** `python -m py_compile app.py` + `pytest tests/ -v`
 5. **PR template:** What, why, validation, docs updated
 
 ### Priority Physics Gaps
 - [ ] Panhandle A/B for distribution pressures (<20 bar)
-- [ ] Transient (time-dependent) blending ramps
-- [ ] Compressor polytropic head/flow maps (blend-dependent)
+- [ ] Transient (time-dependent) blending ramps — **DONE in v2.0**
+- [ ] Compressor polytropic head/flow maps (blend-dependent) — **DONE in v2.0**
 - [ ] Fracture mechanics: Paris law with H₂-enhanced da/dN
-- [ ] Uncertainty quantification (Monte Carlo on ε, T, composition)
+- [ ] Uncertainty quantification (Monte Carlo on ε, T, composition) — **DONE in v2.0**
 - [ ] Export adapters: PyPSA, OpenModelica, SAInt
 
 ---
