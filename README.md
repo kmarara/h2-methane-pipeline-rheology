@@ -1,7 +1,6 @@
 # H₂ Pipeline Digital Twin — Core Engine + Regional Case Studies
 
 A modular computational platform for hydrogen blending analysis in natural gas transmission networks. The **core physics engine** is geography-agnostic; **case studies** provide region-specific configuration (corridors, steel grades, policy context, risk thresholds).
-
 ## Why This Exists
 
 Gas networks globally face the same physics challenge: **H₂ has 1/3 the volumetric energy density of CH₄ but lower viscosity and different compressibility**. Blending changes pressure drop, compressor power, materials degradation, and flow requirements — all simultaneously. This tool quantifies those coupled effects using industry-standard equations.

@@ -30,6 +30,10 @@ from core import (
     risk_color,
     RiskTier,
     create_ireland_network,
+    simulate_pipeline_with_compressors,
+    find_required_looping,
+    pressure_drop_with_looping,
+    equivalent_hydraulic_diameter,
 )
 
 # Ireland case study
@@ -204,6 +208,157 @@ for alert in alerts:
     css_class = color_map[alert.tier]
     icon = icon_map[alert.tier]
     st.markdown(f'<div class="{css_class}"><strong>{icon} {alert.title}:</strong> {alert.message}</div>', unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────────────────────
+# Pressure Exceedance Mitigation (Interactive Engineering Solutions)
+# ──────────────────────────────────────────────────────────────
+# Baseline: single-segment Darcy-Weisbach at energy-equivalent flow
+Q_ref = 1.0
+Q_equiv = equivalent_flow_rate(Q_ref, defaults["reference_hv_vol"], props["hv_vol_blend"])
+dp_baseline = darcy_weisbach_dp(Q_equiv, L_km, D_mm, props["rho_blend"], props["mu_blend"])
+P_out_baseline = P_bar - dp_baseline
+P_MIN_ALLOWED = 20.0  # bar
+
+exceedance = P_out_baseline < P_MIN_ALLOWED
+
+if exceedance:
+    st.markdown("---")
+    st.markdown("### 🔧 Pressure Exceedance Mitigation")
+    
+    st.warning(
+        f"⚠️ **Pressure Exceedance Detected:** At {h2_pct:.1f}% H₂ blend, the energy-equivalent flow "
+        f"requires {Q_equiv:.4f} m³/s, causing ΔP = {dp_baseline:.1f} bar. "
+        f"Outlet pressure drops to **{P_out_baseline:.1f} bar** (below {P_MIN_ALLOWED:.1f} bar minimum)."
+    )
+    
+    mitigation_choice = st.radio(
+        "Select Engineering Mitigation Strategy:",
+        ["Add Midpoint Compressor Station(s)", "Apply Pipeline Looping (Parallel Pipe)"],
+        key="mitigation_strategy",
+    )
+    
+    if mitigation_choice == "Add Midpoint Compressor Station(s)":
+        # Run compressor simulation
+        T_k = T_amb_c + 273.15
+        P_pa = P_bar * 1e5
+        comp_result = simulate_pipeline_with_compressors(
+            Q=Q_equiv,
+            L_total=L_km,
+            D=D_mm,
+            rho=props["rho_blend"],
+            mu=props["mu_blend"],
+            Z=props["Z_blend"],
+            T=T_k,
+            P_in=P_bar,
+            P_min=P_MIN_ALLOWED,
+            target_P=P_bar,
+        )
+        
+        st.success(
+            f"✅ **Resolved:** {comp_result['num_compressors']} compressor station(s) added. "
+            f"Outlet pressure restored to **{comp_result['P_out']:.1f} bar**."
+        )
+        
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Compressors Added", comp_result['num_compressors'])
+        with col_b:
+            st.metric("Total Compression Power", f"{comp_result['total_power_mw']:.2f} MW")
+        with col_c:
+            st.metric("Segment Length", f"{comp_result['segment_length_km']:.1f} km")
+        
+        if comp_result['compressor_locations_km']:
+            st.info("**Compressor Locations:** " + 
+                    ", ".join([f"Km {loc:.1f}" for loc in comp_result['compressor_locations_km']]))
+        
+        # Show pressure profile
+        if len(comp_result['segment_pressures']) > 2:
+            fig_comp, ax_comp = plt.subplots(figsize=(8, 3), facecolor='#FFFFFF')
+            stations = list(range(len(comp_result['segment_pressures'])))
+            ax_comp.plot(stations, comp_result['segment_pressures'], 'o-', color='#1B4F72', linewidth=2, markersize=6)
+            ax_comp.axhline(y=P_MIN_ALLOWED, color='#E74C3C', linestyle='--', label=f'Min Safe ({P_MIN_ALLOWED} bar)')
+            ax_comp.axhline(y=P_bar, color='#27AE60', linestyle='--', label=f'Inlet ({P_bar} bar)')
+            ax_comp.set_xlabel('Pipeline Station', fontsize=11)
+            ax_comp.set_ylabel('Pressure (bar)', fontsize=11)
+            ax_comp.set_title('Pressure Profile with Intermediate Compression', fontsize=12, fontweight='bold')
+            ax_comp.legend(fontsize=9)
+            ax_comp.grid(True, alpha=0.3)
+            ax_comp.set_facecolor('#F8F9FA')
+            fig_comp.tight_layout()
+            st.pyplot(fig_comp)
+    
+    elif mitigation_choice == "Apply Pipeline Looping (Parallel Pipe)":
+        # Find required looping percentage
+        loop_result = find_required_looping(
+            Q=Q_equiv,
+            L_total=L_km,
+            D_main=D_mm,
+            rho=props["rho_blend"],
+            mu=props["mu_blend"],
+            P_in=P_bar,
+            P_min=P_MIN_ALLOWED,
+            D_loop=D_mm,  # Same diameter loop
+            max_loop_pct=1.0,
+        )
+        
+        if loop_result['success']:
+            st.success(
+                f"✅ **Resolved:** Parallel {D_mm:.0f} mm loop over **{loop_result['loop_length_km']:.1f} km** "
+                f"({loop_result['loop_percentage']*100:.1f}% of route). "
+                f"Outlet pressure restored to **{loop_result['P_out']:.1f} bar**."
+            )
+        else:
+            st.error(
+                f"❌ **Insufficient:** Even 100% looping ({L_km:.0f} km) only achieves "
+                f"{loop_result['P_out']:.1f} bar outlet. Requires larger loop diameter or compression."
+            )
+        
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Loop Percentage", f"{loop_result['loop_percentage']*100:.1f}%")
+        with col_b:
+            st.metric("Loop Length", f"{loop_result['loop_length_km']:.1f} km")
+        with col_c:
+            st.metric("Equivalent Diameter (looped)", 
+                      f"{equivalent_hydraulic_diameter(D_mm, D_mm):.0f} mm")
+        
+        # Show pressure comparison
+        dp_looped = pressure_drop_with_looping(
+            Q_equiv, L_km, loop_result['loop_length_km'], D_mm, D_mm,
+            props["rho_blend"], props["mu_blend"]
+        )
+        
+        fig_loop, ax_loop = plt.subplots(figsize=(8, 3), facecolor='#FFFFFF')
+        segments = ['Single Pipe', f'Looped ({loop_result["loop_percentage"]*100:.0f}%)']
+        pressures = [P_bar - dp_baseline, P_bar - dp_looped]
+        colors = ['#E74C3C' if p < P_MIN_ALLOWED else '#27AE60' for p in pressures]
+        bars = ax_loop.bar(segments, pressures, color=colors, edgecolor='black', width=0.6)
+        ax_loop.axhline(y=P_MIN_ALLOWED, color='#E74C3C', linestyle='--', linewidth=2, label=f'Min Safe ({P_MIN_ALLOWED} bar)')
+        ax_loop.set_ylabel('Outlet Pressure (bar)', fontsize=11)
+        ax_loop.set_title('Outlet Pressure: Baseline vs. Looped', fontsize=12, fontweight='bold')
+        ax_loop.legend(fontsize=9)
+        ax_loop.grid(True, alpha=0.3, axis='y')
+        ax_loop.set_facecolor('#F8F9FA')
+        # Add value labels on bars
+        for bar, p in zip(bars, pressures):
+            ax_loop.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                        f'{p:.1f} bar', ha='center', va='bottom', fontweight='bold')
+        fig_loop.tight_layout()
+        st.pyplot(fig_loop)
+        
+        if loop_result['success']:
+            st.info(
+                f"**Engineering Note:** Looping {loop_result['loop_length_km']:.0f} km of parallel {D_mm} mm pipe "
+                f"increases hydraulic capacity by ~{(equivalent_hydraulic_diameter(D_mm, D_mm)/D_mm - 1)*100:.0f}%, "
+                f"reducing velocity and friction loss. CAPEX intensive but zero OPEX."
+            )
+else:
+    st.markdown("---")
+    st.markdown("### ✅ Pressure Integrity Check")
+    st.success(
+        f"✅ **No Exceedance:** At {h2_pct:.1f}% H₂, outlet pressure is **{P_out_baseline:.1f} bar** "
+        f"(ΔP = {dp_baseline:.1f} bar). Well above {P_MIN_ALLOWED:.1f} bar minimum."
+    )
 
 # ──────────────────────────────────────────────────────────────
 # Export

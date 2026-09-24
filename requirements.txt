@@ -7,3 +7,9 @@ streamlit-folium==0.17.0
 scipy==1.13.0
 pyyaml==6.0.1
 pytest==9.1.1
+fastapi==0.111.0
+uvicorn==0.30.1
+pydantic==2.7.1
+networkx==3.3
+geopandas==0.14.4
+shapely==2.0.1
