@@ -145,7 +145,9 @@ class GasNetwork:
     
     def add_edge(self, edge: NetworkEdge):
         self.edges[edge.edge_id] = edge
-        self.graph.add_edge(edge.from_node, edge.to_node, edge_id=edge.edge_id, **edge.__dict__)
+        edge_dict = edge.__dict__.copy()
+        edge_dict.pop('edge_id', None)  # Remove edge_id to avoid duplicate
+        self.graph.add_edge(edge.from_node, edge.to_node, edge_id=edge.edge_id, **edge_dict)
     
     def add_compressor(self, compressor: CompressorStation):
         self.compressors[compressor.compressor_id] = compressor

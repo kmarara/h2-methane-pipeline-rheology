@@ -131,26 +131,35 @@ class MonteCarloUQ:
     def _run_single_steady_state(self, sample: Dict[str, float]) -> Dict[str, float]:
         """Run single steady-state simulation with sampled parameters."""
         try:
-            net = create_ireland_network()
+            from core.network.solver import create_ireland_network, GasNetwork, NetworkNode, NodeType
+            from dataclasses import replace
+            
+            base_net = create_ireland_network()
+            
+            # Create new network with scaled demands (frozen dataclass needs replace)
+            net = GasNetwork("MC Network")
+            for nid, node in base_net.nodes.items():
+                if node.node_type == NodeType.DEMAND:
+                    new_node = replace(node, demand_sm3h=node.demand_sm3h * sample["demand_scaling"])
+                else:
+                    new_node = node
+                net.add_node(new_node)
+            
+            for eid, edge in base_net.edges.items():
+                net.add_edge(edge)
+            
+            for cid, comp in base_net.compressors.items():
+                net.add_compressor(comp)
+            
             net.set_gas_properties(sample["h2_fraction"], 
                                   sample["ground_temp_c"] + 273.15)
-            
-            # Scale demands
-            for nid, node in net.nodes.items():
-                if node.node_type.name == "DEMAND":
-                    node.demand_sm3h *= sample["demand_scaling"]
-            
-            # Note: roughness would need to be passed to pipe edges
-            # Simplified: use network solver defaults
             
             results = net.solve_steady_state()
             
             if not results["converged"]:
                 return {"success": False}
             
-            # Extract key outputs
             min_pressure = min(results["node_pressures"].values())
-            max_velocity = 0
             total_power = results["total_compression_power_mw"]
             
             return {
@@ -165,6 +174,8 @@ class MonteCarloUQ:
     def _run_single_transient(self, sample: Dict[str, float]) -> Dict[str, float]:
         """Run single transient simulation with sampled parameters."""
         try:
+            from core.network.solver import create_ireland_network
+            from core.transient.simulator import TransientSimulator, create_blending_ramp_scenario
             net = create_ireland_network()
             net.set_gas_properties(sample["h2_fraction"], 
                                   sample["ground_temp_c"] + 273.15)
@@ -205,6 +216,9 @@ class MonteCarloUQ:
     def _run_single_economics(self, sample: Dict[str, float]) -> Dict[str, float]:
         """Run single economic analysis with sampled parameters."""
         try:
+            # Imports inside function for multiprocessing compatibility
+            from core.economics.cost_model import EconomicAnalysis, estimate_ireland_h2_project
+            
             # Simplified network results
             network_results = {
                 "total_length_km": 220,
