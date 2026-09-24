@@ -414,15 +414,17 @@ with st.sidebar:
     
     # Metric cards in sidebar
     c1, c2 = st.columns(2)
-    c1.metric("Density", f"{props['rho_blend']:.2f}", "kg/m³", delta_color="off")
-    c2.metric("Viscosity", f"{props['mu_blend']*1e6:.1f}", "μPa·s", delta_color="off")
-    c1.metric("Compressibility Z", f"{props['Z_blend']:.4f}", delta_color="off")
-    c2.metric("Energy Density", f"{props['hv_vol_blend']:.1f}", "MJ/m³", delta_color="off")
-    c1.metric("Flow Increase", f"{(Q_equiv/Q_ref-1)*100:.1f}%", delta_color="off")
-    c2.metric("Velocity", f"{velocity:.1f}", "m/s", delta_color="off" if velocity < 20 else "inverse")
-    c1.metric("ΔP (Darcy)", f"{dp_darcy:.1f}", "bar", delta_color="off")
-    c2.metric("Outlet P", f"{P_out:.1f}", "bar", 
-              delta=f"{P_out - P_min:.1f} vs min", 
+    c1.metric("Density", f"{props['rho_blend']:.2f} kg/m³")
+    c2.metric("Viscosity", f"{props['mu_blend']*1e6:.1f} μPa·s")
+    c1.metric("Compressibility Z", f"{props['Z_blend']:.4f}")
+    c2.metric("Energy Density", f"{props['hv_vol_blend']:.1f} MJ/m³")
+    c1.metric("Flow Increase", f"{(Q_equiv/Q_ref-1)*100:.1f}%")
+    c2.metric("Velocity", f"{velocity:.1f} m/s", 
+              delta="HIGH" if velocity >= 20 else "OK",
+              delta_color="inverse" if velocity >= 20 else "normal")
+    c1.metric("ΔP (Darcy)", f"{dp_darcy:.1f} bar")
+    c2.metric("Outlet P", f"{P_out:.1f} bar",
+              delta=f"{P_out - P_min:.1f} vs min",
               delta_color="normal" if P_out >= P_min else "inverse")
     
     st.markdown("---")
